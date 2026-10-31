@@ -1,0 +1,41 @@
+name: build-windows
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias
+        run: python -m pip install -r requirements.txt pyinstaller pytest
+      - name: Testes
+        run: python -m pytest tests -q
+      - name: Build do executavel
+        run: pyinstaller packaging/fftlab.spec --noconfirm --distpath dist --workpath build
+      - name: Autoteste do .exe congelado
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\FFTLab\FFTLab.exe -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content "$env:TEMP\fftlab_selftest.txt"
+          if ($p.ExitCode -ne 0) { throw "selftest falhou" }
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $v = (Select-String -Path fftlab\__init__.py -Pattern '__version__ = "(.*)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$v" packaging\installer.iss
+      - name: Versao portatil (zip)
+        shell: pwsh
+        run: Compress-Archive -Path dist\FFTLab -DestinationPath FFTLab-portatil.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FFTLab-windows
+          path: |
+            installer/*.exe
+            FFTLab-portatil.zip
